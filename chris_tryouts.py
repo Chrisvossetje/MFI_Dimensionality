@@ -6,6 +6,7 @@ from matplotlib.image import imread
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 def gaussian_2d(shape, center=None, sigma=1.0):
     """
     Generates a 2D Gaussian-distributed matrix.
@@ -18,7 +19,7 @@ def gaussian_2d(shape, center=None, sigma=1.0):
     Returns:
     - 2D NumPy array with Gaussian-distributed values
     """
-    cols, rows = shape
+    rows, cols = shape
     x = np.linspace(0, cols - 1, cols)
     y = np.linspace(0, rows - 1, rows)
     X, Y = np.meshgrid(x, y)
@@ -31,6 +32,39 @@ def gaussian_2d(shape, center=None, sigma=1.0):
     
     return gaussian
 
+def custom_2d_shape(size=(50, 50), center=None, sx=10, sy=5, theta=0, p=2, offset=0):
+    """
+    Generates a 2D shape similar to a Gaussian but with more control.
+
+    Parameters:
+    - size: tuple (height, width) -> Size of the output matrix.
+    - center: tuple (cx, cy) -> Center of the shape. Default: middle of the matrix.
+    - sx, sy: float -> Spread in X and Y directions (controls elongation).
+    - theta: float (radians) -> Rotation angle of the shape.
+    - p: float -> Power exponent (controls sharpness; p=2 is Gaussian).
+    - offset: float -> Base offset to shift all values.
+
+    Returns:
+    - 2D NumPy array with the generated shape.
+    """
+    height, width = size
+    x = np.linspace(0, width - 1, width)
+    y = np.linspace(0, height - 1, height)
+    X, Y = np.meshgrid(x, y)
+
+    if center is None:
+        cx, cy = width // 2, height // 2
+    else:
+        cx, cy = center
+
+    # Rotation transformation
+    Xr = (X - cx) * np.cos(theta) + (Y - cy) * np.sin(theta)
+    Yr = -(X - cx) * np.sin(theta) + (Y - cy) * np.cos(theta)
+
+    # Shape function
+    shape = np.exp(-((Xr / sx) ** p + (Yr / sy) ** p)) + offset
+
+    return shape
 
 def gaussian_3d(shape, center=None, sigma=1.0):
     """
@@ -130,45 +164,37 @@ def restruct(mat, shape):
     
 
 # Define matrix size and standard deviation
-shape = (10, 10, 10) 
-sigma = 2.0  # Controls the spread of the Gaussian
+shape = (71, 71) 
 
 
 
 # Generate Gaussian matrix
-guassian_tensor = gaussian_3d(shape, sigma=sigma)
-# plot_3d_matrix(guassian_tensor)
-flat = flatten(guassian_tensor) 
-lol = restruct(flat, shape)
-# plt.imshow(flat)
-# plt.colorbar(label="Intensity")
-# plt.show()
-
-
-
-# # gaussian_matrix = gaussian_2d(shape, sigma=sigma)
-
-
-# A = imread(os.path.join('./dog.jpeg'))
-# X = np.mean(A, -1); # Convert RGB to grayscale
+guassian_tensor = custom_2d_shape(shape, None, sx=25, sy=5, theta=1, p=4)
 
 # Plot the matrix
-plt.imshow(flat, )
-# plt.colorbar(label="Intensity")
+plt.imshow(guassian_tensor, )
+plt.colorbar(label="Intensity")
 plt.title("2D Gaussian Matrix")
 plt.show()
 
+# # plot_3d_matrix(guassian_tensor)
+# flat = flatten(guassian_tensor) 
+# lol = restruct(flat, shape)
+# # plt.imshow(flat)
+# # plt.colorbar(label="Intensity")
+# # plt.show()
 
-
-U, S, VT = np.linalg.svd(flat,full_matrices=False)
+U, S, VT = np.linalg.svd(guassian_tensor,full_matrices=False)
 S = np.diag(S)
 # print(U)
 print(S)
 # print(VT)
-for r in (1, 2,3): # Construct approximate image
+for r in (1, 2,3, 5, 7): # Construct approximate image
     # print(U[:,:r] )
     print(S[0:r,:r])
     # print(VT[:r,:])
     Xapprox = U[:,:r] @ S[0:r,:r] @ VT[:r,:]
-
-    plot_3d_matrix(restruct(Xapprox, shape))
+    plt.imshow(Xapprox, )
+    plt.colorbar(label="Intensity")
+    plt.title("2D Gaussian Matrix")
+    plt.show()
