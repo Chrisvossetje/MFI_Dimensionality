@@ -2,6 +2,8 @@ import numpy as np
 import scipy
 import scipy.linalg
 import matplotlib.pyplot as plt
+import nibabel as nib
+import pandas as pd
 
 # NOTE: A LOT OF THIS IS DUPLICATE CODE, SINCE WE DID NOT WANT MERGE ERRORS. WILL SANITIZE LATER!!
 # Calculate A \times_3 M
@@ -155,48 +157,108 @@ def plot_2_3D_matrices(matrix1, matrix2, title_1="Original image", title_2="tSVD
     plt.show()
 
 
-
-
-
-
-
 def matrix_norm(A):
     return np.sqrt(np.sum(np.abs(A) ** 2))
 
 
+def process_lesion_tsvd(path, M=None, plot=False, max_rank=5):
+    """
+    Process a lesion image using tSVD and compute truncated approximations.
 
-# Import a lesion
-import nibabel as nib
-path = "./Mock_lesions/Mock_lesion_1.nii"
-nii_image = nib.load(path)
-image_array = nii_image.get_fdata() # Convert to numpy array
+    Parameters:
+    - path (str): Path to the NIfTI file of the lesion.
+    - M (ndarray): The transformation matrix to use in tSVD. Defaults to a 10x10 identity matrix if None.
+    - plot (bool): Whether to plot the original image and the approximations.
+    - max_rank (int): Maximum truncation rank for the SVD approximation.
 
-# Try to use tSVD on the lesion
-M = np.identity(10)
-# M = scipy.linalg.dft(10)
-U, S, V = full_tsvdm(image_array, M)
-result = star_m(star_m(U,S,M), V, M)
+    Returns:
+    - image_array (ndarray): The original lesion image array.
+    - result (ndarray): The tSVD reconstructed image from the full decomposition.
+    """
+    # Assume full_tsvdm, star_m, and plot_2_3D_matrices are already defined elsewhere.
 
-# Plot the original image and the approximation
-plot_2_3D_matrices(image_array, np.real(result))
+    # Set default transformation matrix if not provided
+    if M is None:
+        M = np.identity(10)
 
-# Print the diff
-delta = np.sum((image_array - result)**2)
-print("Difference image and tSVD: " + str(delta))
+    # Import lesion
+    nii_image = nib.load(path)
+    image_array = nii_image.get_fdata()  # Convert to numpy array
 
-def svd_rank_r_truncation(U, S, V, k):
-    k = max(1,min(U.shape[1], V.shape[0], k))
-    return U[:,0:k,:],S[0:k, 0:k,:],V[0:k,:,:]
+    # Compute full tSVD decomposition and reconstruction
+    U, S, V = full_tsvdm(image_array, M)
+    result = star_m(star_m(U, S, M), V, M)
 
-plot = False
-for rank in range(1,6):
-    U_trunc, S_trunc, V_trunc = svd_rank_r_truncation(U,S,V,rank)
-    result_trunc = star_m(star_m(U_trunc,S_trunc,M),V_trunc,M)
+    # Plot the original image and the full tSVD approximation
+    if plot:
+        plot_2_3D_matrices(image_array, np.real(result))
 
-    # Print the square error
-    sqr_error = np.sum((result - result_trunc)**2)
-    print(sqr_error)
+    # Compute and print the overall difference between the original image and the tSVD result
+    delta = np.sum((image_array - result)**2)
+    if plot:
+        print("Difference image and tSVD: " + str(delta))
 
-    # Plot the approx
-    if (plot):
-        plot_2_3D_matrices(image_array, np.real(result_trunc), title_2=("tSVD approx for rank " + str(rank)))
+    # Define a helper function for truncating the tSVD decomposition
+    def svd_rank_r_truncation(U, S, V, k):
+        k = max(1, min(U.shape[1], V.shape[0], k))
+        return U[:, :k, :], S[:k, :k, :], V[:k, :, :]
+
+    # Loop over truncation ranks from 1 to max_rank to compare approximations
+    errors = []
+    for rank in range(1, max_rank + 1):
+        U_trunc, S_trunc, V_trunc = svd_rank_r_truncation(U, S, V, rank)
+        result_trunc = star_m(star_m(U_trunc, S_trunc, M), V_trunc, M)
+
+        # Compute and print the squared error between the full tSVD and the truncated approximation
+        sqr_error = np.sum((result - result_trunc)**2)
+        errors.append(sqr_error)
+        if plot:
+            print(f"Squared error for rank {rank}: {sqr_error}")
+
+
+        # Plot the truncated approximation if plotting is enabled
+        if plot:
+            plot_2_3D_matrices(image_array, np.real(result_trunc), title_2=f"tSVD approx for rank {rank}")
+
+    return image_array, result, delta, errors
+
+def collect_errors(num_lesions=1000, M=None, plot=False, max_rank=5):
+    """
+    Process multiple lesion files and collect error metrics in a pandas dataframe.
+
+    Parameters:
+    - num_lesions (int): Number of lesion files to process.
+    - M (ndarray): The transformation matrix for tSVD (defaults to 10x10 identity if None).
+    - plot (bool): Whether to enable plotting in process_lesion_tsvd.
+    - max_rank (int): Maximum truncation rank for tSVD approximations.
+
+    Returns:
+    - df (pandas.DataFrame): A dataframe containing the overall difference ('delta') and 
+      truncated approximation errors (one column per rank) for each lesion.
+    """
+    results = []
+    
+    for i in range(num_lesions):
+        file_path = f"MockLesions/MockLesions/Mock_lesion_{i}.nii.gz"
+        try:
+            # Process the lesion and obtain the overall difference (delta) and errors per rank.
+            image_array, result, delta, errors = process_lesion_tsvd(
+                path=file_path, M=M, plot=plot, max_rank=max_rank
+            )
+            
+            # Create a dictionary to store error metrics for this lesion.
+            lesion_dict = {"lesion_index": i, "delta": delta}
+            # Assuming errors is a list with one error per rank (from rank 1 to max_rank)
+            for rank in range(1, max_rank + 1):
+                lesion_dict[f"error_rank_{rank}"] = errors[rank - 1]
+            results.append(lesion_dict)
+        except Exception as e:
+            print(f"Error processing lesion {i}: {e}")
+    
+    # Convert the list of dictionaries to a pandas dataframe
+    df = pd.DataFrame(results)
+    return df
+
+# Example usage:
+df_errors = collect_errors(num_lesions=1000, plot=False, max_rank=5)
+df_errors
