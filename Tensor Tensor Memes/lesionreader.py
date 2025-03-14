@@ -1,9 +1,13 @@
 import numpy as np
 import scipy
 import scipy.linalg
+from scipy.linalg import dft
+
 import matplotlib.pyplot as plt
 import nibabel as nib
 import pandas as pd
+import seaborn as sns
+import pywt
 
 # NOTE: A LOT OF THIS IS DUPLICATE CODE, SINCE WE DID NOT WANT MERGE ERRORS. WILL SANITIZE LATER!!
 # Calculate A \times_3 M
@@ -258,7 +262,41 @@ def collect_errors(num_lesions=1000, M=None, plot=False, max_rank=5):
     # Convert the list of dictionaries to a pandas dataframe
     df = pd.DataFrame(results)
     return df
+M_dft = dft(10)
+
 
 # Example usage:
-df_errors = collect_errors(num_lesions=1000, plot=False, max_rank=5)
-df_errors
+df_errors = collect_errors(num_lesions=1000, M= M_dft, plot=False, max_rank=5)
+
+
+# Set seaborn style for prettier plots
+sns.set(style="darkgrid")
+
+# Plot the overall delta error per lesion
+plt.figure(figsize=(10, 5))
+plt.plot(df_errors["lesion_index"], df_errors["delta"], color="red", label="Delta error")
+plt.title("Delta Error across Lesions")
+plt.xlabel("Lesion Index")
+plt.ylabel("Delta Error")
+plt.legend()
+plt.show()
+
+# Plot errors for each rank
+plt.figure(figsize=(10, 6))
+for rank in range(1, 6):  # Adjust range to your max rank
+    plt.plot(df_errors["lesion_index"], df_errors[f"error_rank_{rank}"], label=f"Rank {rank}")
+
+plt.title("Truncated SVD Errors by Rank across Lesions")
+plt.xlabel("Lesion Index")
+plt.ylabel("Error Value")
+plt.legend()
+plt.show()
+
+# Optional: Boxplot to summarize error distribution by rank
+plt.figure(figsize=(10, 6))
+rank_columns = [f"error_rank_{rank}" for rank in range(1, 6)]
+sns.boxplot(data=df_errors[rank_columns])
+plt.title("Error Distribution by Rank")
+plt.xlabel("Rank")
+plt.ylabel("Error Value")
+plt.show()
