@@ -5,6 +5,7 @@ from matplotlib.image import imread
 
 import numpy as np
 import matplotlib.pyplot as plt
+import nibabel as nib
 
 
 def gaussian_2d(shape, center=None, sigma=1.0):
@@ -151,9 +152,7 @@ def plot_3d_matrix(matrix):
 def flatten(mat):
     m = np.zeros((mat.shape[0],0))
     for i in range(0,mat.shape[2]):
-        print(m.shape)
         m = np.hstack((m,mat[:,:,i]))
-    print(m.shape)
     return m
 
 def restruct(mat, shape):
@@ -259,10 +258,56 @@ def test_full_tsvdm():
 
     U, S, V = full_tsvdm(A, M)
 
-    print(A - (star_m(star_m(U,S,M), V, M)))
+    L = A - (star_m(star_m(U,S,M), V, M))
+    print(norm(L))
 
     print("full_tsvdm test passed!")
 
-test_three_norm()
-test_star_m()
-test_full_tsvdm()
+def norm(L):
+    return np.sqrt(np.sum(L**2))
+
+
+nii_image = nib.load("Mock_lesion_0.nii.gz")
+image_array = nii_image.get_fdata() # Convert to numpy array
+
+
+def k_trunc_svd(U, S, V, k):
+    k = max(1,min(U.shape[1], V.shape[0], k))
+    return U[:, 0:k, :], S[0:k, 0:k, :], V[0:k,:, :]
+
+def remake_svd(U, S, V, M):
+    return star_m(star_m(U,S,M), V, M)
+
+def k_trunc(A, M, k):
+    U, S, V = full_tsvdm(A,M)
+    Uu, Ss, Vv = k_trunc_svd(U,S,V,k)
+    return remake_svd(Uu, Ss, Vv, M), Uu.shape[0] * Uu.shape[1] * Uu.shape[2] + Vv.shape[0] * Vv.shape[1] * Vv.shape[2] 
+
+def calc_dimensions(U, S, V):
+    return sum(U.shape) + sum(S.shape) + sum(V.shape)
+
+
+
+def non_square_diag(vector, rows, cols):
+    if len(vector) > min(rows, cols):
+        raise ValueError("Vector length exceeds matrix dimensions")
+    
+    matrix = np.zeros((rows, cols))
+    for i in range(len(vector)):
+        matrix[i, i] = vector[i]
+    return matrix
+
+def k_trunc_2d(A, k):
+    M = flatten(A)
+    U, S, V = np.linalg.svd(M)
+    
+    S = non_square_diag(S, U.shape[1], V.shape[0])
+
+    Uu = U[:, 0:k]
+    Ss = S[0:k, 0:k]
+    Vv = V[0:k, :]
+
+    return restruct(Uu @ Ss @ Vv, A.shape), (M.shape[0]*k) + (M.shape[1]*k) + k 
+
+
+
