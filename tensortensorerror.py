@@ -7,12 +7,11 @@ import matplotlib.pyplot as plt
 import nibabel as nib
 import pandas as pd
 import seaborn as sns
-import pywt
 
 # NOTE: A LOT OF THIS IS DUPLICATE CODE, SINCE WE DID NOT WANT MERGE ERRORS. WILL SANITIZE LATER!!
-# Calculate A \times_3 M
+# Calculate A ×_3 M
 def three_prod(A, M):
-    res = np.zeros((A.shape[0],A.shape[1],M.shape[1]), dtype=complex)
+    res = np.zeros((A.shape[0], A.shape[1], M.shape[1]), dtype=complex)
     for x in range(A.shape[0]):
         for y in range(A.shape[1]):  # Fixed the loop over third axis
             res[x, y, :] = M @ A[x, y, :]
@@ -64,56 +63,7 @@ def full_tsvdm(A, M):
 
     return U, S, V
 
-# def plot_3d_matrix(matrix):
-#     """
-#     Plots a 3D matrix as dots in a 3D grid.
-    
-#     - Dot size and color represent intensity values.
-#     - Ignores very small values for cleaner visualization.
-    
-#     Parameters:
-#     - matrix: 3D NumPy array
-#     """
-#     fig = plt.figure(figsize=(8, 8))
-#     ax = fig.add_subplot(111, projection='3d')
-    
-#     # Generate 3D coordinates
-#     z, y, x = np.indices(matrix.shape)
-    
-#     # Flatten the coordinates and values
-#     x = x.flatten()
-#     y = y.flatten()
-#     z = z.flatten()
-#     values = matrix.flatten()
-    
-#     # # Filter out small values to avoid clutter
-#     # threshold = np.max(values) * 0.1  # Keep only significant values
-#     # mask = values > threshold
-    
-#     # x, y, z, values = x[mask], y[mask], z[mask], values[mask]
-    
-#     # Normalize values for color mapping
-#     colors = values / np.max(values)  # Normalize between 0 and 1
-    
-#     # Scatter plot with intensity-based size and color
-#     scatter = ax.scatter(x, y, z, c=colors, cmap="viridis", s=values * 100, alpha=0.8)
-    
-#     # Add color bar
-#     cbar = plt.colorbar(scatter, ax=ax, shrink=0.5, pad=0.1)
-#     cbar.set_label("Intensity")
-
-#     # Labels and title
-#     ax.set_xlabel("X-axis")
-#     ax.set_ylabel("Y-axis")
-#     ax.set_zlabel("Z-axis")
-#     ax.set_title("3D Matrix Visualization")
-
-#     plt.show()
-
 def plot_2_3D_matrices(matrix1, matrix2, title_1="Original image", title_2="tSVD"):
-    # fig = plt.figure(figsize=(8, 8))
-    # ax1 = fig.add_subplot(111, projection='3d')
-    # ax2 = fig.add_subplot(111, projection='3d')
     _, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6), subplot_kw={'projection': '3d'})
     
     # Generate 3D coordinates
@@ -160,12 +110,10 @@ def plot_2_3D_matrices(matrix1, matrix2, title_1="Original image", title_2="tSVD
 
     plt.show()
 
-
 def matrix_norm(A):
     return np.sqrt(np.sum(np.abs(A) ** 2))
 
-
-def process_lesion_tsvd(path, M=None, plot=False, max_rank=5):
+def process_lesion_tsvd(path, M=None, plot=False, max_rank=5, trunc_lesions_1=False):
     """
     Process a lesion image using tSVD and compute truncated approximations.
 
@@ -174,13 +122,12 @@ def process_lesion_tsvd(path, M=None, plot=False, max_rank=5):
     - M (ndarray): The transformation matrix to use in tSVD. Defaults to a 10x10 identity matrix if None.
     - plot (bool): Whether to plot the original image and the approximations.
     - max_rank (int): Maximum truncation rank for the SVD approximation.
+    - trunc_lesions_1 (bool): Whether to truncate the lesion image dimensions.
 
     Returns:
     - image_array (ndarray): The original lesion image array.
     - result (ndarray): The tSVD reconstructed image from the full decomposition.
     """
-    # Assume full_tsvdm, star_m, and plot_2_3D_matrices are already defined elsewhere.
-
     # Set default transformation matrix if not provided
     if M is None:
         M = np.identity(10)
@@ -188,6 +135,8 @@ def process_lesion_tsvd(path, M=None, plot=False, max_rank=5):
     # Import lesion
     nii_image = nib.load(path)
     image_array = nii_image.get_fdata()  # Convert to numpy array
+    if trunc_lesions_1:
+        image_array = image_array[1:9, 1:9, 1:9]
 
     # Compute full tSVD decomposition and reconstruction
     U, S, V = full_tsvdm(image_array, M)
@@ -219,14 +168,13 @@ def process_lesion_tsvd(path, M=None, plot=False, max_rank=5):
         if plot:
             print(f"Squared error for rank {rank}: {sqr_error}")
 
-
         # Plot the truncated approximation if plotting is enabled
         if plot:
             plot_2_3D_matrices(image_array, np.real(result_trunc), title_2=f"tSVD approx for rank {rank}")
 
     return image_array, result, delta, errors
 
-def collect_errors(num_lesions=1000, M=None, plot=False, max_rank=5):
+def collect_errors(num_lesions=1000, M=None, plot=False, max_rank=5, trunc_lesions=False):
     """
     Process multiple lesion files and collect error metrics in a pandas dataframe.
 
@@ -235,6 +183,7 @@ def collect_errors(num_lesions=1000, M=None, plot=False, max_rank=5):
     - M (ndarray): The transformation matrix for tSVD (defaults to 10x10 identity if None).
     - plot (bool): Whether to enable plotting in process_lesion_tsvd.
     - max_rank (int): Maximum truncation rank for tSVD approximations.
+    - trunc_lesions (bool): Whether to truncate the lesion image dimensions.
 
     Returns:
     - df (pandas.DataFrame): A dataframe containing the overall difference ('delta') and 
@@ -247,7 +196,7 @@ def collect_errors(num_lesions=1000, M=None, plot=False, max_rank=5):
         try:
             # Process the lesion and obtain the overall difference (delta) and errors per rank.
             image_array, result, delta, errors = process_lesion_tsvd(
-                path=file_path, M=M, plot=plot, max_rank=max_rank
+                path=file_path, M=M, plot=plot, max_rank=max_rank, trunc_lesions_1=trunc_lesions
             )
             
             # Create a dictionary to store error metrics for this lesion.
@@ -262,41 +211,61 @@ def collect_errors(num_lesions=1000, M=None, plot=False, max_rank=5):
     # Convert the list of dictionaries to a pandas dataframe
     df = pd.DataFrame(results)
     return df
+
 M_dft = dft(10)
 
+# Create a 10x10 DFT matrix
+n = 10
+omega = np.exp(-2j * np.pi / n)
+DFT_matrix = np.array([[omega ** (i * j) for j in range(n)] for i in range(n)])
+# Optionally, normalize the DFT matrix if desired:
+# DFT_matrix = DFT_matrix / np.sqrt(n)
 
-# Example usage:
-df_errors = collect_errors(num_lesions=1000, M= M_dft, plot=False, max_rank=5)
+wavelet_matrix = np.array([
+    [1,  1,  1,  1,  1,  1,  1,  1],
+    [1,  1,  1,  1, -1, -1, -1, -1],
+    [1,  1, -1, -1,  0,  0,  0,  0],
+    [0,  0,  0,  0,  1,  1, -1, -1],
+    [1, -1,  0,  0,  0,  0,  0,  0],
+    [0,  0,  1, -1,  0,  0,  0,  0],
+    [0,  0,  0,  0,  1, -1,  0,  0],
+    [0,  0,  0,  0,  0,  0,  1, -1]
+])
+matrices = [("Identity", None), ("DFT", DFT_matrix), ("Haar", wavelet_matrix)]
 
-
-# Set seaborn style for prettier plots
 sns.set(style="darkgrid")
 
-# Plot the overall delta error per lesion
-plt.figure(figsize=(10, 5))
-plt.plot(df_errors["lesion_index"], df_errors["delta"], color="red", label="Delta error")
-plt.title("Delta Error across Lesions")
-plt.xlabel("Lesion Index")
-plt.ylabel("Delta Error")
-plt.legend()
-plt.show()
+# Initialize list to collect summary statistics
+summary_data = []
 
-# Plot errors for each rank
-plt.figure(figsize=(10, 6))
-for rank in range(1, 6):  # Adjust range to your max rank
-    plt.plot(df_errors["lesion_index"], df_errors[f"error_rank_{rank}"], label=f"Rank {rank}")
+for matrix_name, matrix_value in matrices:
+    # Compute error DataFrame using collect_errors
+    if matrix_name == "Haar":
+        df_errors = collect_errors(num_lesions=1000, M=matrix_value, plot=False, max_rank=5, trunc_lesions=True)
+    else:
+        df_errors = collect_errors(num_lesions=1000, M=matrix_value, plot=False, max_rank=5, trunc_lesions=False)
+    
+    # Compute the mean overall difference and the mean error for each rank
+    mean_delta = df_errors['delta'].mean()
+    mean_errors = {f"error_rank_{rank}": df_errors[f"error_rank_{rank}"].mean() 
+                   for rank in range(1, 6)}
+    
+    # Combine into one summary dictionary for this matrix
+    summary_dict = {"Matrix": matrix_name, "delta": mean_delta}
+    summary_dict.update(mean_errors)
+    summary_data.append(summary_dict)
+    
+    # Create a boxplot to visualize the error distribution by rank for this matrix
+    plt.figure(figsize=(10, 6))
+    rank_columns = [f"error_rank_{rank}" for rank in range(1, 6)]
+    ax = sns.boxplot(data=df_errors[rank_columns])
+    ax.set_xticklabels([f"Rank {rank} error" for rank in range(1, 6)])
+    plt.title(f"Error Distribution by Rank (Matrix: {matrix_name})")
+    plt.xlabel("Rank")
+    plt.ylabel("Error Value")
+    plt.savefig(f"boxplot_{matrix_name}.png")
+    plt.close()
 
-plt.title("Truncated SVD Errors by Rank across Lesions")
-plt.xlabel("Lesion Index")
-plt.ylabel("Error Value")
-plt.legend()
-plt.show()
-
-# Optional: Boxplot to summarize error distribution by rank
-plt.figure(figsize=(10, 6))
-rank_columns = [f"error_rank_{rank}" for rank in range(1, 6)]
-sns.boxplot(data=df_errors[rank_columns])
-plt.title("Error Distribution by Rank")
-plt.xlabel("Rank")
-plt.ylabel("Error Value")
-plt.show()
+# Create a summary DataFrame with rows corresponding to matrices and columns for each error metric.
+summary_df = pd.DataFrame(summary_data).set_index("Matrix")
+print(summary_df)

@@ -5,6 +5,7 @@ from matplotlib.image import imread
 
 import numpy as np
 import matplotlib.pyplot as plt
+import nibabel as nib
 
 
 def gaussian_2d(shape, center=None, sigma=1.0):
@@ -151,9 +152,7 @@ def plot_3d_matrix(matrix):
 def flatten(mat):
     m = np.zeros((mat.shape[0],0))
     for i in range(0,mat.shape[2]):
-        print(m.shape)
         m = np.hstack((m,mat[:,:,i]))
-    print(m.shape)
     return m
 
 def restruct(mat, shape):
@@ -161,40 +160,149 @@ def restruct(mat, shape):
     for i in range(0, shape[2]):
         m[:,:, i] += mat[:, i*shape[1] : ((i+1)*shape[1])]
     return m
+
+import numpy as np
+
+def three_norm(A, M):
+    res = np.zeros((A.shape[0],A.shape[1],M.shape[1]))
+    for x in range(A.shape[0]):
+        for y in range(A.shape[1]):  # Fixed the loop over third axis
+            res[x, y, :] = M @ A[x, y, :]
+    return res
+
+def star_m(A, B, M, Minv=None):
+    if Minv is None:
+        Minv = np.linalg.inv(M)
+
+    Ahat = three_norm(A, M)
+    Bhat = three_norm(B, M)
+
+    if A.shape[2] != B.shape[2]:
+        raise ValueError("something is wrong :(")
+
+    C = np.zeros((A.shape[0], B.shape[1], A.shape[2]))
+    for i in range(A.shape[2]):
+        C[:, :, i] = Ahat[:, :, i] @ Bhat[:, :, i]
+
+    return three_norm(C, Minv)
+
+def non_square_diag(vector, rows, cols):
+    if len(vector) > min(rows, cols):
+        raise ValueError("Vector length exceeds matrix dimensions")
     
+    matrix = np.zeros((rows, cols))
+    for i in range(len(vector)):
+        matrix[i, i] = vector[i]
+    return matrix
 
-# Define matrix size and standard deviation
-shape = (71, 71) 
+def full_tsvdm(A, M):
+    Minv = np.linalg.inv(M)
+    Ahat = three_norm(A, M)
+
+    n = A.shape[2]
+    minn = min(A.shape[0], A.shape[1])
+    U = np.zeros((A.shape[0], A.shape[0], A.shape[2]))
+    S = np.zeros_like(A)
+    V = np.zeros((A.shape[1], A.shape[1], A.shape[2]))
+
+    for i in range(n):
+        Us, Ss, Vs = np.linalg.svd(Ahat[:, :, i])
+        U[:, :, i] = Us
+        S[:, :, i] += non_square_diag(Ss, A.shape[0], A.shape[1])
+        V[:, :, i] = Vs
+
+    U = three_norm(U, Minv)
+    S = three_norm(S, Minv)
+    V = three_norm(V, Minv)
+
+    return U, S, V
+
+# TEST FUNCTIONS 
+
+
+# Test function
+def test_three_norm():
+    A = np.random.rand(5, 7, 9)   # 3x3 matrices, 4 slices
+    M = np.random.rand(9, 9)      # 3x3 matrix
+
+    # Compute result
+    result = three_norm(A, M)
+
+
+    assert (A == three_norm(A, np.identity(9))).all()
+
+    # Check shape
+    assert result.shape == A.shape, f"Shape mismatch: expected {A.shape}, got {result.shape}"
+
+    print("All tests passed!")
+
+def test_star_m():
+    """Test for star_m function."""
+    A = np.random.rand(6, 3, 4)
+    B = np.random.rand(3, 7, 4)
+    M = np.random.rand(4, 4)
+
+    # Compute result
+    result = star_m(A, B, M)
+    
+    # Check shape
+    assert result.shape == (A.shape[0], B.shape[1], B.shape[2]), f"Shape mismatch: expected (3, 3, 4), got {result.shape}"
+
+    print("star_m test passed!")
+
+
+def test_full_tsvdm():
+    """Test for full t-SVDM function."""
+    A = np.random.rand(5, 3, 7)
+    M = np.identity(7)
+
+    U, S, V = full_tsvdm(A, M)
+
+    L = A - (star_m(star_m(U,S,M), V, M))
+    print(norm(L))
+
+    print("full_tsvdm test passed!")
+
+def norm(A):
+    return np.sqrt(np.sum(np.abs(A) ** 2))
+
+def k_trunc_svd(U, S, V, k):
+    k = max(1,min(U.shape[1], V.shape[0], k))
+    return U[:, 0:k, :], S[0:k, 0:k, :], V[0:k,:, :]
+
+def remake_svd(U, S, V, M):
+    return star_m(star_m(U,S,M), V, M)
+
+def k_trunc(A, M, k):
+    U, S, V = full_tsvdm(A,M)
+    Uu, Ss, Vv = k_trunc_svd(U,S,V,k)
+    return remake_svd(Uu, Ss, Vv, M), Uu.shape[0] * Uu.shape[1] * Uu.shape[2] + Vv.shape[0] * Vv.shape[1] * Vv.shape[2] 
+
+def calc_dimensions(U, S, V):
+    return sum(U.shape) + sum(S.shape) + sum(V.shape)
 
 
 
-# Generate Gaussian matrix
-guassian_tensor = custom_2d_shape(shape, None, sx=25, sy=5, theta=1, p=4)
+def non_square_diag(vector, rows, cols):
+    if len(vector) > min(rows, cols):
+        raise ValueError("Vector length exceeds matrix dimensions")
+    
+    matrix = np.zeros((rows, cols))
+    for i in range(len(vector)):
+        matrix[i, i] = vector[i]
+    return matrix
 
-# Plot the matrix
-plt.imshow(guassian_tensor, )
-plt.colorbar(label="Intensity")
-plt.title("2D Gaussian Matrix")
-plt.show()
+def k_trunc_2d(A, k):
+    M = flatten(A)
+    U, S, V = np.linalg.svd(M)
+    
+    S = non_square_diag(S, U.shape[1], V.shape[0])
 
-# # plot_3d_matrix(guassian_tensor)
-# flat = flatten(guassian_tensor) 
-# lol = restruct(flat, shape)
-# # plt.imshow(flat)
-# # plt.colorbar(label="Intensity")
-# # plt.show()
+    Uu = U[:, 0:k]
+    Ss = S[0:k, 0:k]
+    Vv = V[0:k, :]
 
-U, S, VT = np.linalg.svd(guassian_tensor,full_matrices=False)
-S = np.diag(S)
-# print(U)
-print(S)
-# print(VT)
-for r in (1, 2,3, 5, 7): # Construct approximate image
-    # print(U[:,:r] )
-    print(S[0:r,:r])
-    # print(VT[:r,:])
-    Xapprox = U[:,:r] @ S[0:r,:r] @ VT[:r,:]
-    plt.imshow(Xapprox, )
-    plt.colorbar(label="Intensity")
-    plt.title("2D Gaussian Matrix")
-    plt.show()
+    return restruct(Uu @ Ss @ Vv, A.shape), (M.shape[0]*k) + (M.shape[1]*k) + k 
+
+
+
